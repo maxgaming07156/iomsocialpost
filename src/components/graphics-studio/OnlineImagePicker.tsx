@@ -19,6 +19,10 @@ interface OnlineImagePickerProps {
   headline: string;
   description: string;
   selectedImage: OnlineImageResult | null;
+  initialCandidates?: OnlineImageResult[];
+  initialQuery?: string;
+  isAutoSelecting?: boolean;
+  selectionTierLabel?: string | null;
   onSelectImage: (image: OnlineImageResult | null) => void;
   onCopyCredit: (credit: string) => void;
 }
@@ -27,14 +31,32 @@ export function OnlineImagePicker({
   headline,
   description,
   selectedImage,
+  initialCandidates,
+  initialQuery,
+  isAutoSelecting = false,
+  selectionTierLabel,
   onSelectImage,
   onCopyCredit,
 }: OnlineImagePickerProps) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<OnlineImageResult[]>([]);
+  const [query, setQuery] = useState(initialQuery || "");
+  const [results, setResults] = useState<OnlineImageResult[]>(
+    initialCandidates || []
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+
+  useEffect(() => {
+    if (initialQuery) setQuery(initialQuery);
+  }, [initialQuery]);
+
+  useEffect(() => {
+    if (initialCandidates && initialCandidates.length > 0) {
+      setResults(initialCandidates);
+      setHasSearched(true);
+      setError(null);
+    }
+  }, [initialCandidates]);
 
   const runSearch = useCallback(async (searchTerm: string) => {
     const trimmed = searchTerm.trim();
@@ -71,14 +93,13 @@ export function OnlineImagePicker({
     }
   }, []);
 
-  // Auto-generate query and search when the selected article changes
+  // Sync default query when article changes (auto-select handles initial search)
   useEffect(() => {
     if (!headline.trim()) return;
-    const autoQuery = buildImageSearchQuery(headline, description);
-    setQuery(autoQuery);
-    runSearch(autoQuery);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [headline]);
+    if (!initialQuery) {
+      setQuery(buildImageSearchQuery(headline, description));
+    }
+  }, [headline, description, initialQuery]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,7 +134,7 @@ export function OnlineImagePicker({
         <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="font-semibold text-zinc-950">
-              Selected Background & Attribution
+              {selectionTierLabel || "Selected Background & Attribution"}
             </span>
             <div className="flex items-center gap-1.5">
               <Badge
@@ -161,17 +182,19 @@ export function OnlineImagePicker({
       )}
 
       {/* Loading State */}
-      {isLoading && (
+      {(isLoading || isAutoSelecting) && (
         <div className="flex flex-col items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50/70 py-10 text-center">
           <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
           <p className="mt-2 text-xs font-medium text-zinc-700">
-            Searching Wikimedia Commons for reusable photographs...
+            {isAutoSelecting
+              ? "Auto-selecting relevant photograph for this story..."
+              : "Searching for relevant photographs..."}
           </p>
         </div>
       )}
 
       {/* Error State */}
-      {!isLoading && error && (
+      {!isLoading && !isAutoSelecting && error && (
         <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-[#C81E1E]">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>

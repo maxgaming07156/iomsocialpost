@@ -18,7 +18,10 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/Badge";
 import { GraphicCanvas } from "@/components/graphics-studio/GraphicCanvas";
 import { OnlineImagePicker } from "@/components/graphics-studio/OnlineImagePicker";
-import { OnlineImageResult } from "@/app/api/studio/images/search/route";
+import type {
+  AutoSelectImageResponse,
+  OnlineImageResult,
+} from "@/lib/imageSelector";
 import {
   EditorialTemplateId,
   GeneratedGraphicResult,
@@ -92,6 +95,12 @@ export function GraphicsStudioView() {
   const [imageMode, setImageMode] = useState<"online" | "upload">("online");
   const [selectedOnlineImage, setSelectedOnlineImage] =
     useState<OnlineImageResult | null>(null);
+  const [autoCandidates, setAutoCandidates] = useState<OnlineImageResult[]>([]);
+  const [autoQueryUsed, setAutoQueryUsed] = useState("");
+  const [isAutoSelecting, setIsAutoSelecting] = useState(false);
+  const [selectionTierLabel, setSelectionTierLabel] = useState<string | null>(
+    null
+  );
   const [uploadedPhotoDataUrl, setUploadedPhotoDataUrl] = useState<
     string | null
   >(null);
@@ -150,6 +159,52 @@ export function GraphicsStudioView() {
       ) ?? null
     );
   }, [mediaAssets, activeArticleId]);
+
+  // Automatically select the most relevant photograph whenever a post/story is selected
+  useEffect(() => {
+    const targetHeadline = activeStory?.headline || headline;
+    if (!targetHeadline.trim()) return;
+    if (uploadedPhotoDataUrl || customPhotoUrl.trim()) return;
+
+    let cancelled = false;
+    setIsAutoSelecting(true);
+
+    fetch("/api/studio/images/auto-select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        headline: targetHeadline,
+        description: activeStory?.summary || supportingText,
+        articleImageUrl: activeStory?.imageUrl || null,
+      }),
+    })
+      .then((r) => r.json())
+      .then((res: AutoSelectImageResponse) => {
+        if (cancelled) return;
+        setAutoQueryUsed(res.queryUsed || "");
+        setAutoCandidates(res.candidates || []);
+        if (res.selected) {
+          setSelectedOnlineImage(res.selected);
+          const tierMap = {
+            original_article: "Auto-Selected: Original Article Image",
+            online_subject: `Auto-Selected (${res.selected.sourceName})`,
+            contextual_fallback: `Auto-Selected Contextual Photo (${res.selected.sourceName})`,
+          };
+          setSelectionTierLabel(tierMap[res.tier]);
+        }
+      })
+      .catch(() => {
+        // Leave picker available for manual search
+      })
+      .finally(() => {
+        if (!cancelled) setIsAutoSelecting(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeArticleId, activeStory?.id]);
 
   const activePreviewPhoto =
     uploadedPhotoDataUrl ||
@@ -535,7 +590,14 @@ export function GraphicsStudioView() {
                 headline={activeStory?.headline || headline}
                 description={activeStory?.summary || supportingText}
                 selectedImage={selectedOnlineImage}
-                onSelectImage={handleSelectOnlineImage}
+                initialCandidates={autoCandidates}
+                initialQuery={autoQueryUsed}
+                isAutoSelecting={isAutoSelecting}
+                selectionTierLabel={selectionTierLabel}
+                onSelectImage={(img) => {
+                  setSelectionTierLabel("Manual Selection");
+                  handleSelectOnlineImage(img);
+                }}
                 onCopyCredit={handleCopyCredit}
               />
             ) : (

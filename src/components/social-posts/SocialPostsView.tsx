@@ -28,7 +28,10 @@ import { Modal } from "@/components/ui/Modal";
 import { PlatformPreview } from "@/components/social-posts/PlatformPreview";
 import { GraphicCanvas } from "@/components/graphics-studio/GraphicCanvas";
 import { OnlineImagePicker } from "@/components/graphics-studio/OnlineImagePicker";
-import { OnlineImageResult } from "@/app/api/studio/images/search/route";
+import type {
+  AutoSelectImageResponse,
+  OnlineImageResult,
+} from "@/lib/imageSelector";
 import {
   EditorialTemplateId,
   GeneratedGraphicResult,
@@ -114,6 +117,9 @@ export function SocialPostsView() {
   const [generatedPng, setGeneratedPng] =
     useState<GeneratedGraphicResult | null>(null);
   const [isSavingDrive, setIsSavingDrive] = useState(false);
+  const [autoCandidates, setAutoCandidates] = useState<OnlineImageResult[]>([]);
+  const [autoQueryUsed, setAutoQueryUsed] = useState("");
+  const [isAutoSelecting, setIsAutoSelecting] = useState(false);
 
   const filteredPosts = useMemo(() => {
     return posts.filter((post) => {
@@ -178,6 +184,37 @@ export function SocialPostsView() {
       setGeneratedPng(null);
     }
   }, [activePost, activeStory]);
+
+  useEffect(() => {
+    const targetHeadline = activeStory?.headline || headlineDraft;
+    if (!targetHeadline.trim() || uploadedPhotoDataUrl) return;
+    let cancelled = false;
+    setIsAutoSelecting(true);
+    fetch("/api/studio/images/auto-select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        headline: targetHeadline,
+        description: activeStory?.summary || supportingDraft,
+        articleImageUrl: activeStory?.imageUrl || null,
+      }),
+    })
+      .then((r) => r.json())
+      .then((res: AutoSelectImageResponse) => {
+        if (cancelled) return;
+        setAutoQueryUsed(res.queryUsed || "");
+        setAutoCandidates(res.candidates || []);
+        if (res.selected) setSelectedOnlineImage(res.selected);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setIsAutoSelecting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeStory?.id]);
 
   const handleSelectStoryFromDropdown = (articleId: string) => {
     setSelectedArticleId(articleId);
@@ -786,6 +823,9 @@ export function SocialPostsView() {
                     headline={activeStory?.headline || headlineDraft}
                     description={activeStory?.summary || supportingDraft}
                     selectedImage={selectedOnlineImage}
+                    initialCandidates={autoCandidates}
+                    initialQuery={autoQueryUsed}
+                    isAutoSelecting={isAutoSelecting}
                     onSelectImage={(img) => {
                       setSelectedOnlineImage(img);
                       setUploadedPhotoDataUrl(null);
